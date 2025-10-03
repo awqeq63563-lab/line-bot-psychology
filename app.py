@@ -145,3 +145,23 @@ def on_text(event: MessageEvent):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+from linebot.exceptions import LineBotApiError
+from linebot.models import TextSendMessage
+
+@handler.add(MessageEvent, message=TextMessage)
+def handle_text(event):
+    user_text = (event.message.text or "").strip()
+    try:
+        reply_text = ask_gpt(user_text)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+    except LineBotApiError as e:
+        app.logger.error(f"[line] reply failed status={getattr(e, 'status_code', None)} msg={e.error.message if hasattr(e, 'error') else e}")
+        # 若 reply token 失效（常見 400），改用 push 補發
+        if hasattr(event, "source") and getattr(event.source, "user_id", None):
+            try:
+                line_bot_api.push_message(event.source.user_id, TextSendMessage(text=reply_text))
+                app.logger.info("[line] fallback push sent")
+            except Exception as e2:
+                app.logger.error(f"[line] push failed: {e2}")
+        else:
+            app.logger.error("[line] no user_id to push")
